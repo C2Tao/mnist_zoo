@@ -25,9 +25,7 @@ def ran(*shape):
 
 def var(name, np_const):
     tf_const = tf.cast(tf.constant(np_const), tf.float32)
-    t = tf.get_variable(name, initializer = tf_const)
-    sess.run(tf.initialize_variables([t]))
-    return t
+    return tf.get_variable(name, initializer = tf_const)
 
 def ten_reshape(x, shape):
     y = tf.reshape(x, shape)
@@ -59,11 +57,13 @@ def vec_logr(x, n_output):
         y = tf.nn.softmax(tf.matmul(x, w) + b)
     return y
 
+
+gg = [1,2,3]
+print ran(*gg)
+
 def seq_lstm(x, n_output):
     # x: [?, x_len, n_input]
     # y: [?, x_len, n_output]
-    # biggest problem: initial rnn_weights are numerical copies of the given_weight
-    #                  cannot symbolically replace rnn_weight with given_weight
     #
     # lstm internal variables [weight, bias]
     # weight is [n_input + n_output, n_output * 4]
@@ -75,25 +75,26 @@ def seq_lstm(x, n_output):
     #   c = (sigmoid(f + self._forget_bias) * c_prev + sigmoid(i) * self._activation(j))
     with tf.variable_scope('lstm') as vs:
         cell = tf.nn.rnn_cell.BasicLSTMCell(n_output, state_is_tuple=True)
+        # state_is_tuple explained in
+        # http://lan2720.github.io/2016/07/16/%E8%A7%A3%E8%AF%BBtensorflow%E4%B9%8Brnn/ 
         cell = tf.nn.rnn_cell.DropoutWrapper(cell, output_keep_prob = 0.5)
         y, state = tf.nn.dynamic_rnn(cell, x, dtype=tf.float32)
+
+        #sess.run(tf.initialize_all_variables())
+        # automatically assign initial value to lstm parameters for customized initialization
+        #for rnn_variable in tf.get_collection(tf.GraphKeys.VARIABLES, scope=vs.name):
+        #    rnn_new_variable = rnn_variable.assign(np.ones(map(int, rnn_variable.get_shape())))
+        #    rnn_variable = rnn_new_variable
         
         # manually assign initial value to lstm parameters for customized initialization
-        # assign is just a graph operation that assigns value to tensor
-        # it does nothing on its own, 
-        # need to call sess.run(w_op) after initialization
-        # DO NOT CALL intializer_all_variables() again after assign_op
-        w_rnn, b_rnn = tf.get_collection(tf.GraphKeys.VARIABLES, scope=vs.name)
-
-        w = var('w', ran(*map(int, w_rnn.get_shape())))
-        b = var('b', ran(*map(int, b_rnn.get_shape())))
-
-        init_op = tf.initialize_variables([w_rnn, b_rnn])
-        w_op = w_rnn.assign(w)
-        b_op = b_rnn.assign(b)
-
-        sess.run([init_op])
-        sess.run([w_op, b_op])
+        #w, b = tf.get_collection(tf.GraphKeys.VARIABLES, scope=vs.name)
+        #print w.name
+        #sess.run(tf.initialize_all_variables())
+        #w = w.assign(var('w', ran(*map(int, w.get_shape()))))
+        #b = b.assign(var('b', ran(*map(int, b.get_shape()))))
+        
+        
+        
     return y
 
 def ten_xent(y, y_):
@@ -146,15 +147,32 @@ y, e = net_lstm(x, y_, 'lstm')
 
 train_step = tf.train.GradientDescentOptimizer(0.1).minimize(e)
 
+
+
+
+w, b = tf.get_collection(tf.GraphKeys.VARIABLES, scope='lstm/lstm')
+# assign is just a graph operation that assigns value to tensor
+# it does nothing on its own, 
+# need to call sess.run(w_op) after initialization
+# DO NOT CALL intializer_all_variables() again after assign_op
+w_cus = var('w_custom', ran(*map(int, w.get_shape())))
+b_cus = var('b_custom', ran(*map(int, b.get_shape())))
+w_op = w.assign(w_cus)
+b_op = b.assign(b_cus)
+
+G = tf.get_default_graph()
+sess.run(tf.initialize_all_variables())
+sess.run([w_op, b_op])
+
 print_variable(1, 'before training')
-print_variable(3, 'before training')
+print_variable(5, 'before training')
 
 for i in range(100):
     batch_xs, batch_ys = mnist.train.next_batch(100)
     sess.run(train_step, feed_dict={x: batch_xs, y_: batch_ys})
 
 print_variable(1, 'after training')
-print_variable(3, 'after training')
+print_variable(5, 'after training')
 
 correct_prediction = tf.equal(tf.argmax(y, 1), tf.argmax(y_,1))
 accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
