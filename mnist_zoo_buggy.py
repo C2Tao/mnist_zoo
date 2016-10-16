@@ -23,46 +23,44 @@ def test_rand_example():
 def ran(*shape):
     return np.random.rand(*shape)
 
-def zero(*shape):
-    return np.zeros(shape, dtype = np.float32)
-
 def var(name, np_const):
     tf_const = tf.cast(tf.constant(np_const), tf.float32)
     t = tf.get_variable(name, initializer = tf_const)
     sess.run(tf.initialize_variables([t]))
     return t
 
-def ten_reshape(x, shape):
+def op_ten_reshape(x, shape):
     y = tf.reshape(x, shape)
     return y
 
-def img_pool(x):
+def op_img_pool(x):
     # x: [?, x_width, x_height, x_channel]
     # y: [?, x_width/2, x_height/2, x_channel]
     y = tf.nn.max_pool(x, ksize=[1, 2, 2, 1], strides=[1, 2, 2, 1], padding='SAME') 
     return y
 
-def img_conv(x, n_width, n_height, n_output):
+def op_img_conv(x, n_width, n_height, n_output, name = 'conv'):
     # x: [?, x_width, x_height, n_input]
-    # y: [?, x_width, x_height, n_output]
+    # y: [?, x_width/2, x_height/2, n_output]
     n_input = x.get_shape()[-1]
-    with tf.variable_scope('conv'):
-        w = var('w', zero(n_width, n_height, n_input, n_output))
-        b = var('b', zero(n_output))
-        y = tf.nn.conv2d(x, w, strides=[1, 1, 1, 1], padding='SAME') + b
+    with tf.variable_scope(name):
+        w = var('w', ran(n_width, n_height, n_input, n_output))
+        b = var('b', ran(n_output))
+        x1 = tf.nn.conv2d(x, w, strides=[1, 1, 1, 1], padding='SAME')
+        y = tf.nn.max_pool(x1, ksize=[1, 2, 2, 1], strides=[1, 2, 2, 1], padding='SAME') 
     return y
 
-def vec_logr(x, n_output):
+def op_vec_logr(x, n_output, name = 'logr'):
     # x: [?, n_input]
     # y: [?, n_output]
     n_input = x.get_shape()[-1]
-    with tf.variable_scope('logr'):
+    with tf.variable_scope(name):
         w = var('w', ran(n_input, n_output))
         b = var('b', ran(n_output))
         y = tf.nn.softmax(tf.matmul(x, w) + b)
     return y
 
-def seq_lstm(x, n_output):
+def op_seq_lstm(x, n_output, name = 'lstm'):
     # x: [?, x_len, n_input]
     # y: [?, x_len, n_output]
     # biggest problem: initial rnn_weights are numerical copies of the given_weight
@@ -76,7 +74,7 @@ def seq_lstm(x, n_output):
     #   stacked like: b = [ b_i, b_j, b_f, b_o ]
     # actual code:
     #   c = (sigmoid(f + self._forget_bias) * c_prev + sigmoid(i) * self._activation(j))
-    with tf.variable_scope('lstm') as vs:
+    with tf.variable_scope(name) as vs:
         cell = tf.nn.rnn_cell.BasicLSTMCell(n_output, state_is_tuple=True)
         cell = tf.nn.rnn_cell.DropoutWrapper(cell, output_keep_prob = 0.5)
         y, state = tf.nn.dynamic_rnn(cell, x, dtype=tf.float32)
@@ -99,7 +97,7 @@ def seq_lstm(x, n_output):
         sess.run([w_op, b_op])
     return y
 
-def ten_xent(y, y_):
+def op_ten_xent(y, y_):
     # y: [?, n_feat]
     # y_: [?, n_feat]
     # e: scalar
@@ -114,21 +112,25 @@ def print_variable(i, comment = ''):
     print variables[i].name
     print sess.run(variables[i])
 
-def net_conv(x, y_, name):
-    with tf.variable_scope(name):
-        x = ten_reshape(x, [-1, 28, 28, 1])
-        x = img_conv(x, 5, 5, 32)
-        x = img_pool(x)
-        x = ten_reshape(x, [-1, 14 * 14 * 32])
-        y = vec_logr(x, 10)
-        e = ten_xent(y, y_)
-    return y, e
+def net_conv(x):
+    with tf.variable_scope('conv0'):
+        x1 = op_ten_reshape(x, [-1, 28, 28, 1])
+        x2 = op_img_conv(x1, 5, 5, 32)
+        x3 = op_ten_reshape(x2, [-1, 14 * 14 * 32])
+    '''
+    with tf.variable_scope('conv1'):
+        x = op_ten_reshape(x, [-1, 14, 14, 32])
+        x = op_img_conv(x, 5, 5, 64)
+        x = op_ten_reshape(x, [-1, 7 * 7 * 64])
+    with tf.variable_scope('lstm'):
+        x = op_ten_reshape(x, [-1, 7, 7 * 64])
+        x = op_seq_lstm(x, 10)
+        x = op_ten_reshape(x, [-1, 7 * 10])
+    '''
+    with tf.variable_scope('out'):
+        y = op_vec_logr(x3, 10)
+    return y
 
-def net_logr(x,  y_, name):
-    with tf.variable_scope(name):
-        y = vec_logr(x, 10)
-        e = ten_xent(y, y_)
-    return y, e
 
 
 def net_lstm(x, y_, name):
@@ -140,24 +142,19 @@ def net_lstm(x, y_, name):
         e = ten_xent(y, y_)
     return y, e
 
+
 x = tf.placeholder(tf.float32, [None,  784])
 y_ = tf.placeholder(tf.float32, [None, 10])
 
-y, e = net_conv(x, y_, 'conv')
-#y, e = net_logr(x, y_, 'logr')
-#y, e = net_lstm(x, y_, 'lstm')
+y = net_conv(x)
+e = op_ten_xent(y, y_)
 
-train_step = tf.train.GradientDescentOptimizer(0.001).minimize(e)
+train_step = tf.train.GradientDescentOptimizer(0.01).minimize(e)
 
-print_variable(1, 'before training')
-#print_variable(3, 'before training')
 
 for i in range(1000):
     batch_xs, batch_ys = mnist.train.next_batch(100)
     sess.run(train_step, feed_dict={x: batch_xs, y_: batch_ys})
-
-print_variable(1, 'after training')
-#print_variable(3, 'after training')
 
 correct_prediction = tf.equal(tf.argmax(y, 1), tf.argmax(y_,1))
 accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
