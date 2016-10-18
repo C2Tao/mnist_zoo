@@ -187,25 +187,45 @@ def plot_img(x):
     plt.colorbar()
     plt.show()
 
-n_code = 10
-n_iter = 1000
+n_code = 100
+n_iter = 10000
 n_batch = 100
 lr_rate = 0.001
+
+def generator_attention(c):
+    # input sample from random noise
+    # output counterfiet example
+    x1 = vec_full(c, [30, 784], activation = tf.nn.sigmoid, name = 'l1')
+    x2 = vec_full(c, [30, 784], activation = tf.nn.sigmoid, name = 'l2')
+    x3 = vec_full(c, [30, 784], activation = tf.nn.sigmoid, name = 'l3')
+    xs = tf.concat(1, [x1,x2,x3])
+    xr = tf.reshape(xs, [-1, 3, 784])
+    
+    a0 = vec_full(c, [30, 3 * 784], activation = tf.nn.sigmoid, name = 'a0')
+    a1 = tf.reshape(xs, [-1, 3, 784])
+    ar = tf.nn.softmax(a1, dim = 1)
+    
+    x = tf.reduce_sum(xr*ar, reduction_indices = 1)
+    #x = (x1+x2+x3)/3
+    return x, ar, x1,x2,x3
 
 def generator(c):
     # input sample from random noise
     # output counterfiet example
-    x = vec_full(c, [100, 784], activation = tf.nn.sigmoid)
+    c = vec_full(c, [100], activation = tf.nn.relu, name = 'relu')
+    x = vec_full(c, [784], activation = tf.nn.sigmoid, name = 'sig')
     return x
+
 def discriminator(x):
     # input sample to be judged
     # output probability p for passing the discriminator test
 
     #x = ten_reshape(x, [-1, 28, 28, 1])
-    #x = img_full(x, [32, 64])
+    #x = img_full(x, [4, 16])
     #x = ten_reshape(x, [-1, 7 * 7 * 64])
-    #p = vec_full(x, [1])
-    p = vec_full(x, [100, 1], activation = tf.nn.sigmoid)
+    #p = vec_full(x, [100, 1])
+    x = vec_full(x, [100], activation = tf.nn.relu, name = 'relu')
+    p = vec_full(x, [1], activation = tf.nn.sigmoid, name = 'sig')
     return p
 
 x_sam = tf.placeholder(tf.float32, [None,  784])
@@ -220,46 +240,63 @@ with tf.variable_scope('discriminator') as scope:
     p_sam = discriminator(x_sam)
     scope.reuse_variables()
     p_gen = discriminator(x_gen)
+
 print p_gen.name
 print p_sam.name
 
 
+def mat_std(x):
+    #input  [n_sample, n_feat]
+    #output [n_sample] of standard deviation
+    x_u = tf.reduce_mean(x, reduction_indices = 0)
+    x_n = tf.reduce_mean((x-x_u)**2,reduction_indices = 0)
+    return tf.sqrt(x_n)
+    
+    
 
+#s_gen = mat_std(tf.reshape(x_gen, [-1, 784]))
+#s_sam = mat_std(tf.reshape(x_sam, [-1, 784]))
+#obj_std = - tf.reduce_mean((s_gen-s_sam)**2)
+#w_std = 1
 
-obj_gen_early = -tf.log(p_gen) 
-obj_gen = tf.log(1.0-p_gen) 
+obj_gen_early = -tf.log(p_gen)  #+ w_std * obj_std
+obj_gen = tf.log(1.0-p_gen) #+ w_std * obj_std 
 obj_sam = - tf.log(p_sam) - tf.log(1.0-p_gen)
 
-gen_step_early = tf.train.GradientDescentOptimizer(lr_rate).minimize(obj_gen_early, var_list=get_var('generator'))
-gen_step = tf.train.GradientDescentOptimizer(lr_rate).minimize(obj_gen, var_list=get_var('generator'))
-dis_step = tf.train.GradientDescentOptimizer(lr_rate).minimize(obj_sam, var_list = get_var('discriminator'))
+gen_step_early = tf.train.AdagradOptimizer(lr_rate).minimize(obj_gen_early, var_list=get_var('generator'))
+gen_step = tf.train.AdagradOptimizer(lr_rate).minimize(obj_gen, var_list=get_var('generator'))
+dis_step = tf.train.AdagradOptimizer(lr_rate).minimize(obj_sam, var_list = get_var('discriminator'))
 
 tn = tf.reduce_mean(1.0-p_gen)
 tp = tf.reduce_mean(p_sam)
 
-
 init_op = tf.initialize_all_variables()
 sess.run(init_op)
 print_variable(-1, 'before training')
+start = False
 for i in range(n_iter):
     batch_xs, batch_ys = mnist.train.next_batch(n_batch)
     batch_cs = ran(n_batch, n_code)
-    sess.run(dis_step, feed_dict={x_sam: batch_xs, c: batch_cs})
-    if i<n_iter/5:
-        sess.run(gen_step_early, feed_dict={x_sam: batch_xs, c: batch_cs})
-        pass
-    else:
-        sess.run(gen_step, feed_dict={x_sam: batch_xs, c: batch_cs})
-    print 'tn->0.5',i, sess.run(tn, feed_dict={x_sam: batch_xs, c: batch_cs})
+    true_neg = sess.run(tn, feed_dict={c: batch_cs})
+    def train_dis():
+        sess.run(dis_step, feed_dict={x_sam: batch_xs, c: batch_cs})
+    def train_gen():
+        if i<(n_iter/2):
+            sess.run(gen_step_early, feed_dict={x_sam: batch_xs, c: batch_cs})
+        else:
+            sess.run(gen_step, feed_dict={x_sam: batch_xs, c: batch_cs})
+    train_dis()
+    train_gen()
+:   if i%100==0:
+        print 'tn->0.5',i, sess.run(tn, feed_dict={x_sam: batch_xs, c: batch_cs})
     #print 'tp->0.5', sess.run(tp, feed_dict={x_sam: batch_xs, c: batch_cs})
     
+batch_xs, batch_ys = mnist.train.next_batch(n_batch)
 plot_img(sess.run(x_gen, feed_dict={c: ran(3, n_code)}))
-#print ran(1, n_code)
+#plot_img(sess.run(s_gen, feed_dict={c: ran(100, n_code)}))
+#plot_img(sess.run(s_sam, feed_dict={x_sam: batch_xs}))
 #print ran(1, n_code)
 
 #correct_prediction = tf.equal(tf.argmax(y, 1), tf.argmax(y_,1))
 #accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
 #print(sess.run(accuracy, feed_dict={x: mnist.test.images, y_: mnist.test.labels}))
-
-
-
