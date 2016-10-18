@@ -60,15 +60,20 @@ def img_deconv(x, n_width, n_height, n_output):
              [1, 26, 20, 1], [1, 2, 2, 1], padding='SAME', name=None)
     return y
 
-def vec_sigm(x, n_output):
+def vec_full(x, n_hidden, activation = tf.nn.relu):
     # x: [?, n_input]
-    # y: [?, n_output]
+    # y: [?, n_hidden[-1]]
     n_input = x.get_shape()[-1]
-    with tf.variable_scope('logr'):
-        w = var('w', ran(n_input, n_output)*0.001)
-        b = var('b', ran(n_output)*0.001)
-        y = tf.nn.sigmoid(tf.matmul(x, w) + b)
-    return y
+    n_prev = n_input
+    for i, n_output in enumerate(n_hidden):
+        with tf.variable_scope('full'+str(i)):
+            w = var('w', ran(n_prev, n_output)*0.001)
+            b = var('b', zero(n_output))
+            x = activation(tf.matmul(x, w) + b)
+            n_prev = n_output
+        
+    return x
+
 def get_var(scope):
     return tf.get_collection(tf.GraphKeys.VARIABLES, scope=scope)
 
@@ -131,8 +136,9 @@ def print_variable(i, comment = ''):
     print comment
     print map(lambda g: g.name, variables)
     print map(lambda g: g.get_shape(), variables)
-    print variables[i].name
-    print sess.run(variables[i])
+    if i>0:
+        print variables[i].name
+        print sess.run(variables[i])
 
 def net_conv(x, y_, name):
     with tf.variable_scope(name):
@@ -160,8 +166,9 @@ def net_lstm(x, y_, name):
         e = ten_xent(y, y_)
     return y, e
 
+
 def plot_img(x):
-    matrix = np.reshape(x, [28, 28])
+    matrix = np.reshape(x, [-1, 28])
     import matplotlib.pylab as plt
     fig = plt.figure()
     ax = fig.add_subplot(1,1,1)
@@ -169,61 +176,70 @@ def plot_img(x):
     plt.imshow(matrix, interpolation='nearest', cmap=plt.cm.ocean)
     plt.colorbar()
     plt.show()
-'''
+
+n_code = 100
+n_iter = 100
+n_batch = 100
+lr_rate = 0.001
+
 def generator(c):
     # input sample from random noise
     # output counterfiet example
-    with tf.variable_scope('generator')
-        x_gen = vec_sigm(p, 784)
+    x = vec_full(c, [10, 784], activation = tf.nn.sigmoid)
     return x
 def discriminator(x):
     # input sample to be judged
     # output probability p for passing the discriminator test
-    with tf.variable_scope('discriminator') as scope:
-        p = vec_sigm(x, 1)
-        scope.reuse_variables()
+    p = vec_full(x, [10, 1], activation = tf.nn.sigmoid)
     return p
-'''
-n_code = 100
+
 x_sam = tf.placeholder(tf.float32, [None,  784])
 y = tf.placeholder(tf.float32, [None, 10])
-p = tf.placeholder(tf.float32, [None, n_code])
+c = tf.placeholder(tf.float32, [None, n_code])
 
 with tf.variable_scope('generator'):
-    x_gen = vec_sigm(p, 784)
+    x_gen = generator(c)
+print x_gen.name
 
 with tf.variable_scope('discriminator') as scope:
-    # p stands for passing the discriminator test
-    p_gen = vec_sigm(x_gen, 1)
+    p_sam = discriminator(x_sam)
     scope.reuse_variables()
-    p_sam = vec_sigm(x_sam, 1)
+    p_gen = discriminator(x_gen)
+print p_gen.name
+print p_sam.name
 
-obj_gen = tf.log(1.0-p_gen) #minimize
-obj_sam = tf.log(p_sam) + tf.log(1.0-p_gen) #maximize
 
-gen_step = tf.train.GradientDescentOptimizer(0.001).minimize(obj_gen, var_list=get_var('generator'))
-dis_step = tf.train.GradientDescentOptimizer(0.001).minimize(-obj_sam, var_list = get_var('discriminator'))
 
-#print_variable(1, 'before training')
-#print_variable(3, 'before training')
 
-#x_img = sess.run(x_gen, feed_dict={p: zero(1, 5)})
+obj_gen_early = -tf.log(p_gen) 
+obj_gen = tf.log(1.0-p_gen) 
+obj_sam = - tf.log(p_sam) - tf.log(1.0-p_gen)
 
-#plot_img(sess.run(x_gen, feed_dict={p: zero(1, 5)}))
-for i in range(1000):
-    batch_xs, batch_ys = mnist.train.next_batch(100)
-    batch_ps = ran(100, n_code)
-    sess.run(dis_step, feed_dict={x_sam: batch_xs, p: batch_ps})
-    sess.run(gen_step, feed_dict={x_sam: batch_xs, p: batch_ps})
-    #print 'loss', np.exp(sess.run(obj_gen, feed_dict={x_sam: batch_xs, p: batch_ps}))
+gen_step_early = tf.train.GradientDescentOptimizer(lr_rate).minimize(obj_gen_early, var_list=get_var('generator'))
+gen_step = tf.train.GradientDescentOptimizer(lr_rate).minimize(obj_gen, var_list=get_var('generator'))
+dis_step = tf.train.GradientDescentOptimizer(lr_rate).minimize(obj_sam, var_list = get_var('discriminator'))
+
+fp = tf.reduce_mean(1.0-p_gen)
+tp = tf.reduce_mean(p_sam)
+
+
+init_op = tf.initialize_all_variables()
+sess.run(init_op)
+print_variable(-1, 'before training')
+for i in range(n_iter):
+    batch_xs, batch_ys = mnist.train.next_batch(n_batch)
+    batch_cs = ran(n_batch, n_code)
+    sess.run(dis_step, feed_dict={x_sam: batch_xs, c: batch_cs})
+    if i<n_iter/2:
+        sess.run(gen_step_early, feed_dict={x_sam: batch_xs, c: batch_cs})
+    else:
+        sess.run(gen_step, feed_dict={x_sam: batch_xs, c: batch_cs})
+    print 'fp->0.5', sess.run(fp, feed_dict={x_sam: batch_xs, c: batch_cs})
+    #print 'tp->0.5', sess.run(tp, feed_dict={x_sam: batch_xs, c: batch_cs})
     
-
-#x_img, _ = mnist.train.next_batch(1)
-plot_img(sess.run(x_gen, feed_dict={p: zero(1, n_code)}))
-
-
-#print_variable(1, 'after training')
-#print_variable(3, 'after training')
+plot_img(sess.run(x_gen, feed_dict={c: ran(3, n_code)}))
+#print ran(1, n_code)
+#print ran(1, n_code)
 
 #correct_prediction = tf.equal(tf.argmax(y, 1), tf.argmax(y_,1))
 #accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
