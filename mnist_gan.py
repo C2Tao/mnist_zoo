@@ -48,30 +48,40 @@ def img_conv(x, n_width, n_height, n_output):
     # y: [?, x_width, x_height, n_output]
     n_input = x.get_shape()[-1]
     with tf.variable_scope('conv'):
-        w = var('w', zero(n_width, n_height, n_input, n_output))
+        w = var('w', ran(n_width, n_height, n_input, n_output)*0.001)
         b = var('b', zero(n_output))
         y = tf.nn.conv2d(x, w, strides=[1, 1, 1, 1], padding='SAME') + b
     return y
 
+def img_full(x, n_hidden, name = 'cnn', n_width = 5, n_height = 5):
+    # x: [?, x_width, x_height, n_input]
+    # y: [?, x_width/2^L, x_height/2^L, n_hidden[L-1]], L = |n_hidden|
+    n_input = x.get_shape()[-1]
+    for i, n_output in enumerate(n_hidden):
+        with tf.variable_scope(name + str(i)):
+            w = var('w', ran(n_width, n_height, n_input, n_output)*0.001)
+            b = var('b', zero(n_output))
+            x = tf.nn.conv2d(x, w, strides=[1, 1, 1, 1], padding='SAME') + b
+            x = tf.nn.max_pool(x, ksize=[1, 2, 2, 1], strides=[1, 2, 2, 1], padding='SAME') 
+            n_input = n_output
+    return x
+
 def img_deconv(x, n_width, n_height, n_output):
     n_input = x.get_shape()[-1]
     with tf.name_scope('deconv') as scope:
-        deconv = tf.nn.conv2d_transpose(input_layer, [3, 3, 1, 1], 
-             [1, 26, 20, 1], [1, 2, 2, 1], padding='SAME', name=None)
+        y = tf.nn.conv2d_transpose(x, w, [1, 1, 1, 1], [1, 2, 2, 1], padding='SAME')
     return y
 
-def vec_full(x, n_hidden, activation = tf.nn.relu):
+def vec_full(x, n_hidden, name = 'full', activation = tf.nn.relu):
     # x: [?, n_input]
     # y: [?, n_hidden[-1]]
     n_input = x.get_shape()[-1]
-    n_prev = n_input
     for i, n_output in enumerate(n_hidden):
-        with tf.variable_scope('full'+str(i)):
-            w = var('w', ran(n_prev, n_output)*0.001)
+        with tf.variable_scope(name + str(i)):
+            w = var('w', ran(n_input, n_output)*0.001)
             b = var('b', zero(n_output))
             x = activation(tf.matmul(x, w) + b)
-            n_prev = n_output
-        
+            n_input = n_output
     return x
 
 def get_var(scope):
@@ -177,20 +187,25 @@ def plot_img(x):
     plt.colorbar()
     plt.show()
 
-n_code = 100
-n_iter = 100
+n_code = 10
+n_iter = 1000
 n_batch = 100
 lr_rate = 0.001
 
 def generator(c):
     # input sample from random noise
     # output counterfiet example
-    x = vec_full(c, [10, 784], activation = tf.nn.sigmoid)
+    x = vec_full(c, [100, 784], activation = tf.nn.sigmoid)
     return x
 def discriminator(x):
     # input sample to be judged
     # output probability p for passing the discriminator test
-    p = vec_full(x, [10, 1], activation = tf.nn.sigmoid)
+
+    #x = ten_reshape(x, [-1, 28, 28, 1])
+    #x = img_full(x, [32, 64])
+    #x = ten_reshape(x, [-1, 7 * 7 * 64])
+    #p = vec_full(x, [1])
+    p = vec_full(x, [100, 1], activation = tf.nn.sigmoid)
     return p
 
 x_sam = tf.placeholder(tf.float32, [None,  784])
@@ -219,7 +234,7 @@ gen_step_early = tf.train.GradientDescentOptimizer(lr_rate).minimize(obj_gen_ear
 gen_step = tf.train.GradientDescentOptimizer(lr_rate).minimize(obj_gen, var_list=get_var('generator'))
 dis_step = tf.train.GradientDescentOptimizer(lr_rate).minimize(obj_sam, var_list = get_var('discriminator'))
 
-fp = tf.reduce_mean(1.0-p_gen)
+tn = tf.reduce_mean(1.0-p_gen)
 tp = tf.reduce_mean(p_sam)
 
 
@@ -230,11 +245,12 @@ for i in range(n_iter):
     batch_xs, batch_ys = mnist.train.next_batch(n_batch)
     batch_cs = ran(n_batch, n_code)
     sess.run(dis_step, feed_dict={x_sam: batch_xs, c: batch_cs})
-    if i<n_iter/2:
+    if i<n_iter/5:
         sess.run(gen_step_early, feed_dict={x_sam: batch_xs, c: batch_cs})
+        pass
     else:
         sess.run(gen_step, feed_dict={x_sam: batch_xs, c: batch_cs})
-    print 'fp->0.5', sess.run(fp, feed_dict={x_sam: batch_xs, c: batch_cs})
+    print 'tn->0.5',i, sess.run(tn, feed_dict={x_sam: batch_xs, c: batch_cs})
     #print 'tp->0.5', sess.run(tp, feed_dict={x_sam: batch_xs, c: batch_cs})
     
 plot_img(sess.run(x_gen, feed_dict={c: ran(3, n_code)}))
