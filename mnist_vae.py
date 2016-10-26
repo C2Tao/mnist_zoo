@@ -1,3 +1,6 @@
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pylab as plt
 import tensorflow as tf
 import numpy as np
 from tensorflow.examples.tutorials.mnist import input_data
@@ -177,6 +180,22 @@ def net_lstm(x, y_, name):
     return y, e
 
 
+def save_img(xs, name = 'temp'):
+    matrix = []
+    for i,x in enumerate(xs):
+        matrix.append(np.reshape(x, [-1, 28]))
+    fig = plt.figure()
+    ax = fig.add_subplot(1,1,1)
+    ax.set_aspect('equal')
+    print matrix[0].shape
+    print matrix[1].shape
+    mat = np.concatenate(matrix, axis = 1)
+    print mat.shape
+    plt.imshow(mat, interpolation='nearest', cmap=plt.cm.ocean)
+    #plt.colorbar()
+    #plt.show()
+    plt.savefig(name+'.png')
+
 def plot_img(x):
     matrix = np.reshape(x, [-1, 28])
     import matplotlib.pylab as plt
@@ -192,8 +211,8 @@ def kl_div(u, s):
     return 0.5 * tf.reduce_sum(u*u, reducde_indices = 1)
 
 n_code = 100
-n_iter = 5000
-n_batch = 100
+n_iter = 100
+n_batch = 600
 lr_rate = 0.1
 
 def encoder(x):
@@ -252,23 +271,22 @@ with tf.variable_scope('discriminator') as scope:
     p_gen = discriminator(x_gen)
 
 obj_vae_rec = tf.reduce_sum(tf.squared_difference(x_sam, x_rec), reduction_indices = 1)
-print obj_vae_rec.get_shape()
-obj_vae_reg = tf.reduce_sum(u * u, reduction_indices = 1) * 0.5 
-print obj_vae_rec.get_shape()
-obj_vae = obj_vae_rec + obj_vae_reg
+obj_vae_reg_avg = tf.reduce_sum(u * u, reduction_indices = 1) * 0.5
+obj_vae_reg_var = tf.reduce_sum(v-tf.log(v)-1, reduction_indices = 1) * 0.5
+#obj_vae_reg_var = tf.reduce_sum(0.5*(v-1)**2, reduction_indices = 1) * 0.5
+obj_vae = obj_vae_rec + obj_vae_reg_avg + obj_vae_reg_var 
 
 #obj_gan_gen_early = -tf.log(p_gen)  #+ w_std * obj_std
-#obj_gan_gen = tf.log(1.0-p_gen) #+ w_std * obj_std 
-#obj_gan_sam = - tf.log(p_sam) - tf.log(1.0-p_gen)
+obj_gan_gen = tf.log(1.0-p_gen) #+ w_std * obj_std 
+obj_gan_sam = - tf.log(p_sam) - tf.log(1.0-p_gen)
 
 #gen_step_early = tf.train.AdagradOptimizer(lr_rate).minimize(obj_gen_early, var_list=get_var('generator'))
-#gen_step = tf.train.AdagradOptimizer(lr_rate).minimize(obj_gen, var_list=get_var('generator'))
-#dis_step = tf.train.AdagradOptimizer(lr_rate).minimize(obj_sam, var_list = get_var('discriminator'))
+gen_step = tf.train.AdagradOptimizer(lr_rate).minimize(obj_gan_gen, var_list = get_var('generator'))
+dis_step = tf.train.AdagradOptimizer(lr_rate).minimize(obj_gan_sam, var_list = get_var('discriminator'))
 
-vae_step = tf.train.AdagradOptimizer(lr_rate).minimize(obj_vae, var_list = get_var('encoder')+get_var('decoder'))
+vae_step = tf.train.AdagradOptimizer(lr_rate).minimize(obj_vae, var_list = get_var('encoder') + get_var('decoder'))
 
-#tn = tf.reduce_mean(1.0-p_gen)
-#tp = tf.reduce_mean(p_sam)
+tn = tf.reduce_mean(1.0-p_gen)
 
 init_op = tf.initialize_all_variables()
 sess.run(init_op)
@@ -278,22 +296,30 @@ for i in range(n_iter):
     batch_xs, ___ = mnist.train.next_batch(n_batch)
     batch_xs = apply_stats(batch_xs, ud, vd)
     batch_cs = ran(n_batch, n_code)
-    #true_neg = sess.run(tn, feed_dict={c: batch_cs})
+    true_neg = sess.run(tn, feed_dict={c: batch_cs})
 
     sess.run(vae_step, feed_dict={x_sam: batch_xs, c: batch_cs})
     #sess.run(dis_step, feed_dict={x_sam: batch_xs, c: batch_cs})
+    #sess.run(gen_step, feed_dict={x_sam: batch_xs, c: batch_cs})
     #if i<(n_iter/2): sess.run(gen_step_early, feed_dict={x_sam: batch_xs, c: batch_cs})
     #else: sess.run(gen_step, feed_dict={x_sam: batch_xs, c: batch_cs})
 
 
     if i%100==0:
-        #print 'tn->0.5',i, sess.run(tn, feed_dict={x_sam: batch_xs, c: batch_cs})
+        print 'tn->0.5',i, sess.run(tn, feed_dict={x_sam: batch_xs, c: batch_cs})
         print 'obj_vae->0',i, sess.run(tf.reduce_mean(obj_vae), feed_dict={x_sam: batch_xs, c: batch_cs})
 
 n_view = 5
 batch_xs, batch_ys = mnist.train.next_batch(n_view)
-plot_img(batch_xs)
-plot_img(sess.run(unapply_stats(x_rec, ud, vd), feed_dict={x_sam: batch_xs, c: ran(n_view, n_code)}))
+
+
+A = batch_xs
+B = sess.run(unapply_stats(x_rec, ud, vd), feed_dict={x_sam: batch_xs, c: ran(n_view, n_code)})
+
+save_img([A, B])
+
+#plot_img(batch_xs)
+#plot_img(sess.run(unapply_stats(x_rec, ud, vd), feed_dict={x_sam: batch_xs, c: ran(n_view, n_code)}))
 #plot_img(sess.run(x_gen, feed_dict={c: ran(3, n_code)}))
 #plot_img(sess.run(s_gen, feed_dict={c: ran(100, n_code)}))
 #plot_img(sess.run(s_sam, feed_dict={x_sam: batch_xs}))
