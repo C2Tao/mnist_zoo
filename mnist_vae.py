@@ -211,7 +211,7 @@ def kl_div(u, s):
     return 0.5 * tf.reduce_sum(u*u, reducde_indices = 1)
 
 n_code = 100
-n_iter = 100
+n_iter = 10000
 n_batch = 600
 lr_rate = 0.1
 
@@ -288,43 +288,54 @@ vae_step = tf.train.AdagradOptimizer(lr_rate).minimize(obj_vae, var_list = get_v
 
 tn = tf.reduce_mean(1.0-p_gen)
 
-init_op = tf.initialize_all_variables()
-sess.run(init_op)
-print_variable(-1, 'before training')
-ud, vd = sess.run(get_stats(x_sam), feed_dict={x_sam: mnist.train.images})
-for i in range(n_iter):
-    batch_xs, ___ = mnist.train.next_batch(n_batch)
-    batch_xs = apply_stats(batch_xs, ud, vd)
-    batch_cs = ran(n_batch, n_code)
-    true_neg = sess.run(tn, feed_dict={c: batch_cs})
 
-    sess.run(vae_step, feed_dict={x_sam: batch_xs, c: batch_cs})
-    #sess.run(dis_step, feed_dict={x_sam: batch_xs, c: batch_cs})
-    #sess.run(gen_step, feed_dict={x_sam: batch_xs, c: batch_cs})
-    #if i<(n_iter/2): sess.run(gen_step_early, feed_dict={x_sam: batch_xs, c: batch_cs})
-    #else: sess.run(gen_step, feed_dict={x_sam: batch_xs, c: batch_cs})
+def train():
+    init_op = tf.initialize_all_variables()
+    sess.run(init_op)
+    print_variable(-1, 'before training')
+    ud, vd = sess.run(get_stats(x_sam), feed_dict={x_sam: mnist.train.images})
+    for i in range(n_iter):
+        batch_xs, ___ = mnist.train.next_batch(n_batch)
+        batch_xs = apply_stats(batch_xs, ud, vd)
+        batch_cs = ran(n_batch, n_code)
+        true_neg = sess.run(tn, feed_dict={c: batch_cs})
 
-
-    if i%100==0:
-        print 'tn->0.5',i, sess.run(tn, feed_dict={x_sam: batch_xs, c: batch_cs})
-        print 'obj_vae->0',i, sess.run(tf.reduce_mean(obj_vae), feed_dict={x_sam: batch_xs, c: batch_cs})
-
-n_view = 5
-batch_xs, batch_ys = mnist.train.next_batch(n_view)
+        sess.run(vae_step, feed_dict={x_sam: batch_xs, c: batch_cs})
+        #sess.run(dis_step, feed_dict={x_sam: batch_xs, c: batch_cs})
+        #sess.run(gen_step, feed_dict={x_sam: batch_xs, c: batch_cs})
+        #if i<(n_iter/2): sess.run(gen_step_early, feed_dict={x_sam: batch_xs, c: batch_cs})
+        #else: sess.run(gen_step, feed_dict={x_sam: batch_xs, c: batch_cs})
 
 
-A = batch_xs
-B = sess.run(unapply_stats(x_rec, ud, vd), feed_dict={x_sam: batch_xs, c: ran(n_view, n_code)})
+        if i%100==0:
+            print 'tn->0.5',i, sess.run(tn, feed_dict={x_sam: batch_xs, c: batch_cs})
+            print 'obj_vae->0',i, sess.run(tf.reduce_mean(obj_vae), feed_dict={x_sam: batch_xs, c: batch_cs})
 
-save_img([A, B])
 
-#plot_img(batch_xs)
-#plot_img(sess.run(unapply_stats(x_rec, ud, vd), feed_dict={x_sam: batch_xs, c: ran(n_view, n_code)}))
-#plot_img(sess.run(x_gen, feed_dict={c: ran(3, n_code)}))
-#plot_img(sess.run(s_gen, feed_dict={c: ran(100, n_code)}))
-#plot_img(sess.run(s_sam, feed_dict={x_sam: batch_xs}))
-#print ran(1, n_code)
+    saver = tf.train.Saver()
+    save_path = saver.save(sess, "vae_model.ckpt")
 
-#correct_prediction = tf.equal(tf.argmax(y, 1), tf.argmax(y_,1))
-#accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
-#print(sess.run(accuracy, feed_dict={x: mnist.test.images, y_: mnist.test.labels}))
+def test():
+    saver = tf.train.Saver()
+    saver.restore(sess, "vae_model.ckpt")
+
+    ud, vd = sess.run(get_stats(x_sam), feed_dict={x_sam: mnist.train.images})
+    n_view = 5
+    batch_xs, batch_ys = mnist.train.next_batch(n_view)
+    A = batch_xs
+    B = sess.run(unapply_stats(x_rec, ud, vd), feed_dict={x_sam: batch_xs, c: ran(n_view, n_code)})
+
+    save_img([A, B])
+
+    #plot_img(batch_xs)
+    #plot_img(sess.run(unapply_stats(x_rec, ud, vd), feed_dict={x_sam: batch_xs, c: ran(n_view, n_code)}))
+    #plot_img(sess.run(x_gen, feed_dict={c: ran(3, n_code)}))
+    #plot_img(sess.run(s_gen, feed_dict={c: ran(100, n_code)}))
+    #plot_img(sess.run(s_sam, feed_dict={x_sam: batch_xs}))
+    #print ran(1, n_code)
+
+    #correct_prediction = tf.equal(tf.argmax(y, 1), tf.argmax(y_,1))
+    #accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
+    #print(sess.run(accuracy, feed_dict={x: mnist.test.images, y_: mnist.test.labels}))
+#train()
+test()
