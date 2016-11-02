@@ -2,8 +2,8 @@ from tensorflow.examples.tutorials.mnist import input_data
 mnist = input_data.read_data_sets("MNIST_data/", one_hot=True) 
 from operation import *
 
-n_code = 3
-n_iter = 10000
+n_code = 2
+n_iter = 1000000
 n_batch = 100
 lr_rate = 0.001
 
@@ -59,10 +59,17 @@ def model_init():
 
 def model_train((x_sam, c), (steps, err)):
     ud, vd = model_moment()
+    saver = tf.train.Saver()
     for i in range(n_iter):
         batch_xs, ___ = mnist.train.next_batch(n_batch)
         batch_cs = ran(n_batch, n_code)
         sess.run(steps, feed_dict={x_sam: op_stats_apply(batch_xs, ud, vd), c: batch_cs})
+        
+        one_epoch = mnist.train.images.shape[0]/n_batch
+        if i%one_epoch==0: 
+            num_epoch = i/one_epoch
+            print num_epoch
+            saver.save(sess, 'model/vae/2d', global_step=num_epoch)
 
 def model_error(x_sam, c):
     ud, vd = model_moment()
@@ -130,13 +137,13 @@ c = tf.placeholder(tf.float32, [None, n_code])
 
 model_init()
 model_train((x, c), (step_vae, obj_vae))
-#model_save('vae.ckpt')
+model_save('vae.ckpt')
 
 #model_load('vae.ckpt')
 #model_train((x, c), (step_vae, obj_vae))
-#model_save('vae.ckpt')
+#model_save('vae_1.ckpt')
 
 #model_load('vae.ckpt')
 #model_test(x, c, x_rec)
-model_plot(x_rec, h)
+#model_plot(x_rec, h)
 
