@@ -3,7 +3,7 @@ mnist = input_data.read_data_sets("MNIST_data/", one_hot=True)
 from operation import *
 
 n_code = 2
-n_iter = 1000000
+n_iter = 550*100
 n_batch = 100
 lr_rate = 0.001
 
@@ -57,21 +57,7 @@ def model_load(model_name):
 def model_init():
     sess.run(tf.initialize_all_variables())
 
-def model_train((x_sam, c), (steps, err)):
-    ud, vd = model_moment()
-    saver = tf.train.Saver()
-    for i in range(n_iter):
-        batch_xs, ___ = mnist.train.next_batch(n_batch)
-        batch_cs = ran(n_batch, n_code)
-        sess.run(steps, feed_dict={x_sam: op_stats_apply(batch_xs, ud, vd), c: batch_cs})
-        
-        one_epoch = mnist.train.images.shape[0]/n_batch
-        if i%one_epoch==0: 
-            num_epoch = i/one_epoch
-            print num_epoch
-            saver.save(sess, 'model/vae/2d', global_step=num_epoch)
-
-def model_error(x_sam, c):
+def model_error(x_sam, c, err):
     ud, vd = model_moment()
     train_err = sess.run(
         tf.reduce_mean(err), 
@@ -80,6 +66,22 @@ def model_error(x_sam, c):
             c: zero(mnist.train.images.shape[0], n_code)
         }
     )
+    return train_err
+
+def model_train((x_sam, c), (steps, err)):
+    ud, vd = model_moment()
+    #saver = tf.train.Saver()
+    for i in range(n_iter):
+        batch_xs, ___ = mnist.train.next_batch(n_batch)
+        batch_cs = ran(n_batch, n_code)
+        sess.run(steps, feed_dict={x_sam: op_stats_apply(batch_xs, ud, vd), c: batch_cs})
+        
+        one_epoch = mnist.train.images.shape[0]/n_batch
+        if i%(one_epoch*1)==0: 
+            num_epoch = i/one_epoch
+            #saver.save(sess, 'model/vae/2d', global_step=num_epoch)
+            print num_epoch, model_error(x_sam, c, err)
+
 
 def model_plot(x_rec, h, n_dot = 21, n_max = 2):
     ud, vd = model_moment()
@@ -105,14 +107,20 @@ def model_test(x_sam, c, x_rec, n_view = 5):
         )
     img_save([A, B])
 
+n_hidden = []
+
+def rep(n_hidden):
+    return "_".join(map(str, n_hidden))
+
 def op_encoder(x):
-    z = op_vec_full(x, [100], activation = tf.nn.tanh, name = 'tanh')
-    u = op_vec_full(z, [n_code], activation = tf.nn.tanh, name = 'mean')
-    v = op_vec_full(z, [n_code], activation = tf.nn.sigmoid, name = 'var')
+    if n_hidden:
+        x = op_vec_full(x, n_hidden, activation = tf.nn.tanh, name = 'hidden')
+    u = op_vec_full(x, [n_code], activation = tf.nn.tanh, name = 'mean')
+    v = op_vec_full(x, [n_code], activation = tf.nn.sigmoid, name = 'var')
     return u, v
 
 def op_decoder(c):
-    x = op_vec_full(c, [784], activation = tf.nn.tanh, name = 'tanh')
+    x = op_vec_full(c, n_hidden + [784], activation = tf.nn.tanh, name = 'reconstruction')
     return x
 
 def op_generator(c):
@@ -135,15 +143,14 @@ c = tf.placeholder(tf.float32, [None, n_code])
 (step_vae, obj_vae), (x_rec, h) = op_vae(x, c, op_encoder, op_decoder)
 #step_gan_gen, step_gan_dis = op_gan(x, c, op_generator, op_discriminator)
 
-model_init()
+try:
+    model_load('model/vae_'+rep(n_hidden)+'.ckpt')
+except:
+    model_init()
 model_train((x, c), (step_vae, obj_vae))
-model_save('vae.ckpt')
+model_save('model/vae_'+rep(n_hidden)+'.ckpt')
 
-#model_load('vae.ckpt')
-#model_train((x, c), (step_vae, obj_vae))
-#model_save('vae_1.ckpt')
-
-#model_load('vae.ckpt')
+#model_load('model/vae'+rep(n_hidden)+'.ckpt')
 #model_test(x, c, x_rec)
 #model_plot(x_rec, h)
 
