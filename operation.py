@@ -213,19 +213,38 @@ def img_save(xs, name = None):
     matrix = []
     for i,x in enumerate(xs):
         matrix.append(np.reshape(x, [-1, 28]))
-    fig = plt.figure()
+    dpi = 80
+    height = 28.0*xs[0].shape[0] / dpi
+    width = 28.0*len(xs) / dpi
+    fig = plt.figure(figsize = (width, height), dpi = dpi)
+    #fig = plt.figure()
     ax = fig.add_subplot(1,1,1)
     ax.set_aspect('equal')
     #print matrix[0].shape
     #print matrix[1].shape
     mat = np.concatenate(matrix, axis = 1)
     print mat.shape
-    plt.imshow(mat, interpolation='nearest', cmap=plt.cm.ocean)
+    plt.imshow(mat, interpolation='none', cmap=plt.cm.gray)
     if name:
-        plt.savefig(name+'.png')
+        plt.savefig(name+'.tif', dpi=dpi)
     else:
         plt.colorbar()
         plt.show()
+
+    #import numpy as np
+    #import matplotlib.pyplot as plt
+
+    #dpi = 80 # Arbitrary. The number of pixels in the image will always be identical
+    #data = np.random.random((10, 10))
+
+    #height, width = np.array(data.shape, dtype=float) / dpi
+
+    #fig = plt.figure(figsize=(width, height), dpi=dpi)
+    #ax = fig.add_axes([0, 0, 1, 1])
+    #ax.axis('off')
+
+    #ax.imshow(data, interpolation='none')
+    #fig.savefig('test.tif', dpi=dpi)
 
 def img_plot(x):
     matrix = np.reshape(x, [-1, 28])
@@ -233,7 +252,7 @@ def img_plot(x):
     fig = plt.figure()
     ax = fig.add_subplot(1,1,1)
     ax.set_aspect('equal')
-    plt.imshow(matrix, interpolation='nearest', cmap=plt.cm.ocean)
+    plt.imshow(matrix, interpolation='nearest', cmap=plt.cm.gray)
     plt.colorbar()
     plt.show()
 

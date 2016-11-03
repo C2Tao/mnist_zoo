@@ -3,9 +3,14 @@ mnist = input_data.read_data_sets("MNIST_data/", one_hot=True)
 from operation import *
 
 n_code = 2
-n_iter = 550*100
+n_iter = 550*1000
 n_batch = 100
-lr_rate = 0.001
+lr_rate = 0.1
+
+n_hidden = [100]
+
+def rep(n_hidden):
+    return '_'+"_".join(map(str, n_hidden))
 
 def minimize(obj, wrt):
     return tf.train.AdagradOptimizer(lr_rate).minimize(obj, var_list = wrt)
@@ -70,20 +75,26 @@ def model_error(x_sam, c, err):
 
 def model_train((x_sam, c), (steps, err)):
     ud, vd = model_moment()
-    #saver = tf.train.Saver()
+    saver = tf.train.Saver()
+    min_err = model_error(x_sam, c, err)
     for i in range(n_iter):
         batch_xs, ___ = mnist.train.next_batch(n_batch)
         batch_cs = ran(n_batch, n_code)
         sess.run(steps, feed_dict={x_sam: op_stats_apply(batch_xs, ud, vd), c: batch_cs})
-        
+       
         one_epoch = mnist.train.images.shape[0]/n_batch
-        if i%(one_epoch*1)==0: 
+        if i%(one_epoch*10)==0: 
             num_epoch = i/one_epoch
-            #saver.save(sess, 'model/vae/2d', global_step=num_epoch)
-            print num_epoch, model_error(x_sam, c, err)
+
+            cur_err = model_error(x_sam, c, err)
+            print num_epoch, cur_err
+            if cur_err < min_err:
+                min_err = cur_err
+                print "saving model"
+                saver.save(sess, 'model/vae'+rep(n_hidden)+'.ckpt')
 
 
-def model_plot(x_rec, h, n_dot = 21, n_max = 2):
+def model_plot(x_rec, h, n_dot = 21, n_max = 1, name = ''):
     ud, vd = model_moment()
     img_cols = []
     lin = np.linspace(-n_max, n_max, n_dot)
@@ -92,7 +103,7 @@ def model_plot(x_rec, h, n_dot = 21, n_max = 2):
         pts = np.stack(np.meshgrid(lin, yc), axis = 2).reshape(-1, 2)
         pts = np.concatenate([pts, zero(n_dot, n_code-2)], axis = 1)
         img_cols.append(sess.run(op_stats_unapply(x_rec, ud, vd), feed_dict={h: pts}))
-    img_save(img_cols)
+    img_save(img_cols, name)
 
 def model_test(x_sam, c, x_rec, n_view = 5):
     ___ = tf.placeholder(tf.float32, [None,  784])
@@ -107,10 +118,7 @@ def model_test(x_sam, c, x_rec, n_view = 5):
         )
     img_save([A, B])
 
-n_hidden = []
 
-def rep(n_hidden):
-    return "_".join(map(str, n_hidden))
 
 def op_encoder(x):
     if n_hidden:
@@ -120,7 +128,7 @@ def op_encoder(x):
     return u, v
 
 def op_decoder(c):
-    x = op_vec_full(c, n_hidden + [784], activation = tf.nn.tanh, name = 'reconstruction')
+    x = op_vec_full(c, n_hidden[::-1] + [784], activation = tf.nn.tanh, name = 'reconstruction')
     return x
 
 def op_generator(c):
@@ -143,14 +151,19 @@ c = tf.placeholder(tf.float32, [None, n_code])
 (step_vae, obj_vae), (x_rec, h) = op_vae(x, c, op_encoder, op_decoder)
 #step_gan_gen, step_gan_dis = op_gan(x, c, op_generator, op_discriminator)
 
+
+
+'''
 try:
-    model_load('model/vae_'+rep(n_hidden)+'.ckpt')
+    model_load('model/vae'+rep(n_hidden)+'.ckpt')
 except:
     model_init()
 model_train((x, c), (step_vae, obj_vae))
-model_save('model/vae_'+rep(n_hidden)+'.ckpt')
+#model_save('model/vae'+rep(n_hidden)+'.ckpt')
 
-#model_load('model/vae'+rep(n_hidden)+'.ckpt')
-#model_test(x, c, x_rec)
-#model_plot(x_rec, h)
+'''
 
+model_load('model/vae'+rep(n_hidden)+'.ckpt')
+model_test(x, c , x_rec)
+model_plot(x_rec, h)
+model_plot(x_rec, h, name = 'vae')
