@@ -7,7 +7,7 @@ n_iter = 550*10000
 n_batch = 100
 lr_rate = 0.01
 l2_reg = 0.001
-n_hidden = [100, 100]
+n_hidden = [500, 500]
 
 
 def rep(n_hidden):
@@ -252,10 +252,10 @@ c = tf.placeholder(tf.float32, [None, n_code])
 
 
 
-#GAN, VAE = False, True
-GAN, VAE = True, False
-#TRAIN, IMG = False, True
-TRAIN, IMG = True, False
+GAN, VAE = False, True
+#GAN, VAE = True, False
+TRAIN, IMG = False, True
+#TRAIN, IMG = True, False
 
 if GAN:
     step_gen, step_dis, p_gen, p_sam, x_gen = op_ganvae(x, c, op_encoder, op_decoder)
