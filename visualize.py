@@ -5,9 +5,9 @@ from operation import *
 n_code = 2
 n_iter = 550*10000
 n_batch = 100
-lr_rate = 0.01
-l2_reg = 0.001
-n_hidden = [100, 100]
+lr_rate = 0.1
+l2_reg = 0.0001
+n_hidden = [200]
 
 
 def rep(n_hidden):
@@ -42,9 +42,10 @@ def op_discriminator(x):
     return p
 
 def l2_loss(scope):
+    return 0
     #return l2_reg * tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES, scope=scope)
-    var = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope=scope)
-    weights = get_var(scope)
+    weights = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope=scope)
+    #weights = get_var(scope)
     losses = [tf.nn.l2_loss(w) for w in weights]
     total_loss = tf.add_n(losses) 
     return total_loss
@@ -60,8 +61,8 @@ def op_vae(x_sam, c, op_encoder, op_decoder):
     obj_rec = tf.reduce_sum(tf.squared_difference(x_sam, x_rec), reduction_indices = 1)
     obj_reg_avg = tf.reduce_sum(u * u, reduction_indices = 1) * 0.5
     obj_reg_var = tf.reduce_sum(v-tf.log(v)-1, reduction_indices = 1) * 0.5
-    obj_vae = obj_rec + obj_reg_avg + obj_reg_var + l2_loss('vae')
-    step_vae = minimize(obj_vae, get_var('vae/encoder') + get_var('vae/decoder'))
+    obj_vae = obj_rec + obj_reg_avg + obj_reg_var 
+    step_vae = minimize(obj_vae+ l2_loss('vae'), get_var('vae/encoder') + get_var('vae/decoder'))
     return step_vae, obj_vae, x_rec, h
 
 def op_ganvae(x_sam, c, op_encoder, op_decoder):
@@ -77,11 +78,11 @@ def op_ganvae(x_sam, c, op_encoder, op_decoder):
             u_sam, u_gen = op_encoder(x_sam)
             p_sam = tf.nn.softmax(u_sam)[:, 0]
 
-    obj_gen = tf.log(1.0-p_gen) + l2_loss('vae/decoder')
+    obj_gen = tf.log(1.0-p_gen) 
     #obj_gen = -tf.log(p_gen)
-    obj_dis = - tf.log(p_sam) - tf.log(1.0-p_gen) + l2_loss('vae/encoder')
-    step_gen = minimize(obj_gen, get_var('vae/decoder'))
-    step_dis = minimize(obj_dis, get_var('vae/encoder'))
+    obj_dis = - tf.log(p_sam) - tf.log(1.0-p_gen) 
+    step_gen = minimize(obj_gen+ l2_loss('vae/decoder'), get_var('vae/decoder'))
+    step_dis = minimize(obj_dis+ l2_loss('vae/encoder'), get_var('vae/encoder'))
     return step_gen, step_dis, p_gen, p_sam, x_gen
             
 def op_gan(x_sam, c, op_generator, op_discriminator):
@@ -254,8 +255,8 @@ c = tf.placeholder(tf.float32, [None, n_code])
 
 #GAN, VAE = False, True
 GAN, VAE = True, False
-#TRAIN, IMG = False, True
-TRAIN, IMG = True, False
+TRAIN, IMG = False, True
+#TRAIN, IMG = True, False
 
 if GAN:
     step_gen, step_dis, p_gen, p_sam, x_gen = op_ganvae(x, c, op_encoder, op_decoder)
@@ -263,7 +264,6 @@ if GAN:
     x_rec, h = x_gen, c
 
     try: model_load('model/gan'+rep(n_hidden)+'.ckpt')
-    #try: model_load('model/vae'+rep(n_hidden)+'.ckpt')
     except: model_init()
 
     if TRAIN: model_train_gan(x, c, step_gen, step_dis, p_gen, p_sam)
