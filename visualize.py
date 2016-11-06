@@ -1,7 +1,7 @@
 from tensorflow.examples.tutorials.mnist import input_data
 mnist = input_data.read_data_sets("MNIST_data/", one_hot=True) 
 from operation import *
-
+import matplotlib.pylab as plt
 n_code = 2
 n_iter = 550*10000
 n_batch = 100
@@ -63,7 +63,7 @@ def op_vae(x_sam, c, op_encoder, op_decoder):
     obj_reg_var = tf.reduce_sum(v-tf.log(v)-1, reduction_indices = 1) * 0.5
     obj_vae = obj_rec + obj_reg_avg + obj_reg_var 
     step_vae = minimize(obj_vae+ l2_loss('vae'), get_var('vae/encoder') + get_var('vae/decoder'))
-    return step_vae, obj_vae, x_rec, h
+    return step_vae, obj_vae, x_rec, h, u, v
 
 def op_ganvae(x_sam, c, op_encoder, op_decoder):
     # warning: rank of c has to be 2
@@ -173,68 +173,90 @@ def model_train(x_sam, c, steps, err):
                 saver.save(sess, 'model/vae'+rep(n_hidden)+'.ckpt')
 
 
-def img_save(xs, name = None):
-    if name:
-        print "save image to: "+name+'.png'
-        import matplotlib
-        matplotlib.use('Agg')
+def img_circle(u, v, text =True,  **args):
+    from matplotlib.patches import Ellipse
+    e = Ellipse((u[0], u[1]), width = v[1]*2, height = v[0]*2, fill=False, linewidth=2, **args)
+    ax = plt.gca()
+    ax.add_artist(e)
+    if text:
+        ax.text(u[0], u[1]+v[1],  str(v[1])+' std', 
+            size = 20, 
+            verticalalignment='bottom', 
+            horizontalalignment='center', **args)
+
+
+def img_elli(x_sam, x_rec, u, v, n_view = 5, view = 'train'):
+    ud, vd = model_moment()
+    if view=='train':
+        batch_xs, ___ = mnist.train.next_batch(n_view)
     else:
-        print "show image only"
-
-
-    import matplotlib.pylab as plt
+        batch_xs, ___ = mnist.test.next_batch(n_view)
+        
+    X = batch_xs
+    X_, U, V = sess.run([op_stats_unapply(x_rec, ud, vd), u, v], 
+            feed_dict={ x_sam: op_stats_apply(batch_xs, ud, vd), 
+                        c: zero(n_view, n_code)})
+    #print U, V
+    for ui, vi in zip(U, V):
+        img_circle(ui, map(np.sqrt, vi), text=False, color = 'b')
+    
+def img_recon(x_sam, x_rec, n_view = 5, view = 'train'):
+    ud, vd = model_moment()
+    if view=='train':
+        batch_xs, ___ = mnist.train.next_batch(n_view)
+    else:
+        batch_xs, ___ = mnist.test.next_batch(n_view)
+    X = batch_xs
+    X_ = sess.run(op_stats_unapply(x_rec, ud, vd), 
+            feed_dict={ x_sam: op_stats_apply(batch_xs, ud, vd), 
+                        c: zero(n_view, n_code)})
     matrix = []
-    for i,x in enumerate(xs):
+    for i,x in enumerate([X, X_]):
         matrix.append(np.reshape(x, [-1, 28]))
     mat = np.concatenate(matrix, axis = 1)
-    #dpi = 80
-    #height = 28.0*xs[0].shape[0] / dpi
-    #width = 28.0*len(xs) / dpi
-    #fig = plt.figure(figsize = (width, height), dpi = dpi)
-    fig = plt.figure()
-    ax = fig.add_subplot(1,1,1)
-    ax.set_aspect('equal')
+    plt.imshow(1-mat, interpolation='none', cmap=plt.cm.gray)
+
+def img_code(xs, h, n_max=2, n_dot=21, quart=False):
+    ud, vd = model_moment()
+    if quart: nn_max = 0
+    else: nn_max = -n_max
+    lin = np.linspace(nn_max, n_max, n_dot)
+
+    img_cols = []
+    for yc in lin:
+        pts = np.stack(np.meshgrid(lin, yc), axis = 2).reshape(-1, 2)
+        pts = np.concatenate([pts, zero(n_dot, n_code-2)], axis = 1)
+        img_cols.append(sess.run(op_stats_unapply(x_rec, ud, vd), feed_dict={h: pts}))
+
+    matrix = []
+    for i,x in enumerate(img_cols):
+        matrix.append(np.reshape(x, [-1, 28]))
+    mat = np.concatenate(matrix, axis = 1)
     
-    print mat.shape
-    #plt.imshow(mat, interpolation='none', cmap=plt.cm.gray, extent = [-2, -2 , 2, 2])
-    plt.imshow(mat, interpolation='none', cmap=plt.cm.gray)
+    plt.imshow(1-mat, interpolation='none', cmap=plt.cm.gray, extent = [nn_max, n_max , nn_max, n_max])
+    plt.xticks(np.linspace(nn_max, n_max, 5))
+    plt.yticks(np.linspace(nn_max, n_max, 5))
 
-    if name:
-        plt.savefig(name+'.png')
-        #plt.savefig(name+'.tif', dpi=dpi)
-    else:
-        plt.colorbar()
-        plt.show()
-
-    #import numpy as np
-    #import matplotlib.pyplot as plt
-
-    #dpi = 80 # Arbitrary. The number of pixels in the image will always be identical
-    #data = np.random.random((10, 10))
-
-    #height, width = np.array(data.shape, dtype=float) / dpi
-
-    #fig = plt.figure(figsize=(width, height), dpi=dpi)
-    #ax = fig.add_axes([0, 0, 1, 1])
-    #ax.axis('off')
-
-    #ax.imshow(data, interpolation='none')
-    #fig.savefig('test.tif', dpi=dpi)
+    for i in range(int(n_max)):
+        img_circle([0,0], [i+1,i+1], color = 'r')
 
 
 
-def model_plot(x_rec, h, n_dot = 21, n_max = 1, name = ''):
+def model_plot(x_rec, h, n_dot = 21, n_max = 1, quart = False, name = ''):
     ud, vd = model_moment()
     img_cols = []
-    lin = np.linspace(-n_max, n_max, n_dot)
+    if quart:
+        lin = np.linspace(0, n_max, n_dot)
+    else:
+        lin = np.linspace(-n_max, n_max, n_dot)
 
     for yc in lin:
         pts = np.stack(np.meshgrid(lin, yc), axis = 2).reshape(-1, 2)
         pts = np.concatenate([pts, zero(n_dot, n_code-2)], axis = 1)
         img_cols.append(sess.run(op_stats_unapply(x_rec, ud, vd), feed_dict={h: pts}))
-    img_save(img_cols, name)
+    img_save(img_cols, name = name)
 
-def model_test(x_sam, c, x_rec, n_view = 5):
+def model_test(x_sam, c, x_rec, n_view = 5, name = ''):
     ___ = tf.placeholder(tf.float32, [None,  784])
     ud, vd = sess.run(op_stats_get(___), feed_dict={___: mnist.train.images})
     batch_xs, ___ = mnist.train.next_batch(n_view)
@@ -245,7 +267,7 @@ def model_test(x_sam, c, x_rec, n_view = 5):
                 c: zero(n_view, n_code)
             }
         )
-    img_save([A, B])
+    img_save([A, B], name)
 
 
 x = tf.placeholder(tf.float32, [None,  784])
@@ -253,8 +275,8 @@ c = tf.placeholder(tf.float32, [None, n_code])
 
 
 
-#GAN, VAE = False, True
-GAN, VAE = True, False
+GAN, VAE = False, True
+#GAN, VAE = True, False
 TRAIN, IMG = False, True
 #TRAIN, IMG = True, False
 
@@ -268,7 +290,7 @@ if GAN:
 
     if TRAIN: model_train_gan(x, c, step_gen, step_dis, p_gen, p_sam)
 elif VAE:
-    step_vae, obj_vae, x_rec, h = op_vae(x, c, op_encoder, op_decoder)
+    step_vae, obj_vae, x_rec, h, u, v = op_vae(x, c, op_encoder, op_decoder)
 
     try: model_load('model/vae'+rep(n_hidden)+'.ckpt')
     except: model_init()
@@ -276,5 +298,55 @@ elif VAE:
     if TRAIN: model_train(x, c, step_vae, obj_vae)
 
 if IMG:
-    model_test(x, c , x_rec)
-    model_plot(x_rec, h)
+
+    def image_0():
+        plt.figure(num=None, figsize=(10, 10), dpi=80)
+        img_code(x_rec, h, n_max = 3, n_dot = 41)
+        plt.savefig('code_3std.png')
+        plt.show()
+
+    def image_1():
+        plt.figure(num=None, figsize=(10, 10), dpi=80)
+        img_code(x_rec, h, n_max = 1, n_dot = 15)
+        plt.savefig('code_1std.png')
+        plt.show()
+    
+    def image_2():
+        plt.figure(num=None, figsize=(10, 10), dpi=80)
+        img_code(x_rec, h, n_max = 1, n_dot = 15, quart = False)
+        img_elli(x, x_rec, u, v, n_view = 20)
+        plt.savefig('train_elli_small.png')
+        plt.show()
+
+    def image_3():
+        plt.figure(num=None, figsize=(20, 20), dpi=80)
+        img_code(x_rec, h, n_max = 3, n_dot = 41, quart = False)
+        img_elli(x, x_rec, u, v, n_view = 1000, view= 'train')
+        plt.savefig('train_elli.png')
+        plt.show()
+
+    def image_4():
+        plt.figure(num=None, figsize=(20, 20), dpi=80)
+        img_code(x_rec, h, n_max = 3, n_dot = 41, quart = False)
+        img_elli(x, x_rec, u, v, n_view = 1000, view='test')
+        plt.savefig('test_elli.png')
+        plt.show()
+
+    def image_5():
+        plt.figure(num=None, figsize=(20, 20), dpi=80)
+        img_recon(x, x_rec, n_view = 10, view = 'train')
+        plt.savefig('train_recon.png')
+        plt.show()
+
+    def image_6():
+        plt.figure(num=None, figsize=(20, 20), dpi=80)
+        img_recon(x, x_rec, n_view = 10, view = 'test')
+        plt.savefig('test_recon.png')
+        plt.show()
+   
+    image_1() 
+    image_2() 
+    image_3() 
+    image_4() 
+    image_5() 
+    image_6() 
