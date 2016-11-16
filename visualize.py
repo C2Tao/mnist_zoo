@@ -175,7 +175,7 @@ def model_train(x_sam, c, steps, err):
 
 def img_circle(u, v, text =True,  **args):
     from matplotlib.patches import Ellipse
-    e = Ellipse((u[0], u[1]), width = v[1]*2, height = v[0]*2, fill=False, linewidth=2, **args)
+    e = Ellipse((u[0], u[1]), width = v[0]*2, height = v[1]*2, fill=False, linewidth=2, **args)
     ax = plt.gca()
     ax.add_artist(e)
     if text:
@@ -184,8 +184,11 @@ def img_circle(u, v, text =True,  **args):
             verticalalignment='bottom', 
             horizontalalignment='center', **args)
 
+def filt_small_var(x):
+    u, v = x
+    return u+v>0.5
 
-def img_elli(x_sam, x_rec, u, v, n_view = 5, view = 'train'):
+def img_elli(x_sam, x_rec, u, v, n_view = 5, view = 'train', filt_crit = lambda ___: True):
     ud, vd = model_moment()
     if view=='train':
         batch_xs, ___ = mnist.train.next_batch(n_view)
@@ -197,8 +200,8 @@ def img_elli(x_sam, x_rec, u, v, n_view = 5, view = 'train'):
             feed_dict={ x_sam: op_stats_apply(batch_xs, ud, vd), 
                         c: zero(n_view, n_code)})
     #print U, V
-    for ui, vi in zip(U, V):
-        img_circle(ui, map(np.sqrt, vi), text=False, color = 'b')
+    for ui, vi in filter(filt_crit, zip(U, V)):
+        img_circle(ui, map(np.sqrt, vi), text=False, color = 'b', alpha= 1.0/(1.0+np.log(n_view)/2))
     
 def img_recon(x_sam, x_rec, n_view = 5, view = 'train'):
     ud, vd = model_moment()
@@ -343,6 +346,13 @@ if IMG:
         img_recon(x, x_rec, n_view = 10, view = 'test')
         plt.savefig('test_recon.png')
         plt.show()
+    
+    def image_7():
+        plt.figure(num=None, figsize=(20, 20), dpi=80)
+        img_code(x_rec, h, n_max = 3, n_dot = 41, quart = False)
+        img_elli(x, x_rec, u, v, n_view = 10000, view='train', filt_crit = lambda x: x[1][0]>0.5 or x[1][1]>0.5)
+        plt.savefig('train_extreme.png')
+        plt.show()
    
     image_1() 
     image_2() 
@@ -350,3 +360,4 @@ if IMG:
     image_4() 
     image_5() 
     image_6() 
+    image_7() 
