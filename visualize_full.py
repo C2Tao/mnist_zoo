@@ -28,22 +28,18 @@ def op_encoder_full(x):
     if n_hidden:
         x = op_vec_full(x, n_hidden, activation = tf.nn.tanh, name = 'hidden')
     u = op_vec_full(x, [n_code], activation = tf.nn.tanh, name = 'mean')
-    #v = op_vec_full(x, [n_code*(n_code+1)/2], activation = tf.nn.sigmoid, name = 'var')
-    v = op_vec_full(x, [n_code*(n_code+1)/2], activation = tf.nn.relu, name = 'var')
-    C = tf.get_variable("cov_mat", [n_code, n_code])
-    cov_list = []
+    r = op_vec_full(x, [n_code * n_code], activation = tf.nn.tanh, name = 'pd_base')
+
+    # construct Postive Definite matrix
+    I = tf.constant(np.identity(n_code), dtype=tf.float32)
+    R = tf.reshape(r, [-1, n_code, n_code]) 
+    C = (R+tf.transpose(R, perm=[0,2,1]))/2+ n_code*I # diagonally dominant
+    
     dia_list = []
     for i in range(n_code):
-        for j in range(n_code):
-            if i>=j:
-                cov_list.append(v[:,i*(i+1)/2+j])
-            else:
-                cov_list.append(v[:,j*(j+1)/2+i])
-            if i==j:
-                dia_list.append(v[:,i*(i+1)/2+j])
-    C = tf.reshape(tf.transpose(tf.pack(cov_list), perm = [1, 0]), [-1, n_code, n_code])
+        dia_list.append(C[:,i, i])
     dia = tf.reshape(tf.transpose(tf.pack(dia_list), perm = [1, 0]), [-1, n_code])
-    return u, C, dia, v
+    return u, R, dia, C
 
 def op_decoder(c):
     x = op_vec_full(c, n_hidden[::-1] + [784], activation = tf.nn.tanh, name = 'reconstruction')
@@ -115,16 +111,19 @@ def det2d(v):
 def op_vae_full(x_sam, c, op_encoder, op_decoder):
     with tf.variable_scope('vae'):
         with tf.variable_scope('encoder'):
-            u, C, dia, flat = op_encoder(x_sam)
+            u, R, dia, C = op_encoder(x_sam)
 
         #temp = tf.tile(c, [tf.shape(C)[0], 1])
         #temp2 = tf.reshape(temp, [tf.shape(C)[0],-1,1]) 
         #tf.reshape(tf.batch_matmul(C **0.5,  temp2), [-1])
         
-        temp = tf.reshape(c, [-1, n_code, 1]) 
-        v = tf.reshape(tf.batch_matmul(C **0.5,  temp), [-1, n_code])
+        #temp = tf.reshape(c, [-1, n_code, 1])
+        #temp2 = tf.batch_matmul(R,  temp)
+        #v = tf.reshape(temp2, [-1, n_code])
         
         #v = tf.reshape(three_x_two(C**0.5, tf.reshape(c, [-1, 1])), [-1, tf.shape(c)[0]])
+        
+        v = tf.einsum('ijk,ik->ij', tf.cholesky(C), c)
 
         h = u + v
 
@@ -134,10 +133,10 @@ def op_vae_full(x_sam, c, op_encoder, op_decoder):
     obj_rec = tf.reduce_sum(tf.squared_difference(x_sam, x_rec), reduction_indices = 1)
     obj_reg_avg = tf.reduce_sum(u * u, reduction_indices = 1) * 0.5
     #obj_reg_var = tf.reduce_sum(v-tf.log(v)-1, reduction_indices = 1) 
-    obj_reg_var = tf.reduce_sum(dia, reduction_indices=1) - tf.log(det2d(flat)+0.00001)  # tf.log(tf.matrix_determinant(C))
+    obj_reg_var = tf.reduce_sum(dia, reduction_indices=1) - tf.log(tf.matrix_determinant(C)) #tf.log(det2d(flat))  
     obj_vae = obj_rec + obj_reg_avg + 0.5*obj_reg_var 
     step_vae = minimize(obj_vae+ l2_loss('vae'), get_var('vae/encoder') + get_var('vae/decoder'))
-    return step_vae, obj_vae, x_rec, h, u, C
+    return step_vae, obj_vae, x_rec, h, u, dia
 
 def op_ganvae(x_sam, c, op_encoder, op_decoder):
     # warning: rank of c has to be 2
@@ -368,7 +367,7 @@ if GAN:
     if TRAIN: model_train_gan(x, c, step_gen, step_dis, p_gen, p_sam)
 elif VAE:
     #step_vae, obj_vae, x_rec, h, u, v = op_vae(x, c, op_encoder, op_decoder)
-    step_vae, obj_vae, x_rec, h, u, v = op_vae_full(x, c, op_encoder_full, op_decoder)
+    step_vae, obj_vae, x_rec, h, u, dia = op_vae_full(x, c, op_encoder_full, op_decoder)
 
     try: model_load('model/'+exp_name+''+rep(n_hidden)+'.ckpt')
     except: model_init()
